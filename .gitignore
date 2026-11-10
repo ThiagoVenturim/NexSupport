@@ -19,7 +19,7 @@ node_modules/
 .env
 *.env.local
 support_engine.local.yaml
-.faccoder/
+.nexcoder/
 .support_engine/
 *.sqlite
 *.db
