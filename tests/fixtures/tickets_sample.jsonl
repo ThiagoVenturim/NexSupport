@@ -1,0 +1,2 @@
+{"id": "JSONL-301", "subject": "Slow inventory sync", "description": "Batch sync takes 18 minutes.", "status": "pending", "priority": "medium", "tags": ["sync", "performance"], "created_at": "2026-02-13T12:00:00Z", "csat": 0.75}
+{"id": "JSONL-302", "subject": "API rate limit question", "description": "How to increase burst quota?", "status": "closed", "priority": "low", "tags": ["api"], "created_at": "2026-02-14T16:00:00Z", "csat": "good"}
