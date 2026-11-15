@@ -39,10 +39,53 @@ ticket = connector.to_ticket(
 csv_tickets = load_tickets_csv("tests/fixtures/tickets_sample.csv")
 ```
 
+## Storage and Pluggable Databases
+
+Support Intelligence Engine includes a database-agnostic storage layer built on
+SQLAlchemy Core with parameterized queries:
+
+- **Default:** SQLite (`sqlite:///support_engine.db`) for zero configuration.
+- **Custom database:** point `DB_URL` in `.env` or the environment to PostgreSQL (`.[postgres]`), MySQL (`.[mysql]`), or SQL Server ODBC (`.[mssql]`).
+- **PII masking:** automatic redaction of emails, CPF, CNPJ, phone numbers, credit cards, and secret keys.
+
+```python
+from support_engine import TicketStore, mask_ticket
+
+with TicketStore() as store:
+    store.save_ticket(ticket, mask_pii=True)
+    saved = store.get_ticket("1042")
+```
+
+See [docs/DATABASE.md](docs/DATABASE.md) for full configuration details.
+
+## Command-Line Interface
+
+```bash
+# Import tickets into the database with PII masking
+support-engine import --input tests/fixtures/tickets_sample.csv --mask-pii
+
+# List stored tickets
+support-engine list --status open
+
+# Show ticket details and comments
+support-engine show --id T-101
+
+# Show statistics breakdown
+support-engine stats
+```
+
+## Containers and Multiplatform Scripts
+
+- **Docker Compose:** `docker compose up` runs the app with local storage; `docker compose --profile postgres up` spins up a PostgreSQL container alongside it.
+- **Kubernetes:** example manifests in `k8s/` (`deployment.yaml`, `service.yaml`, `configmap.yaml`, `secret.yaml`).
+- **Scripts:** `.\scripts\run.ps1` (Windows PowerShell) and `./scripts/run.sh` (Linux / macOS Bash).
+
 ## Layout
 
 - `src/support_engine/`: the Python package.
 - `tests/`: tests and synthetic fixtures. They run offline.
+- `k8s/`: Kubernetes manifests.
+- `scripts/`: multiplatform execution scripts.
 - `docs/`, `examples/`: guides and runnable examples.
 
 ## Development

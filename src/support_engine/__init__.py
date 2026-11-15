@@ -6,6 +6,8 @@ operational analytics:
 - ``support_engine.models``: the common ``Ticket`` model every connector maps to.
 - ``support_engine.connectors``: Zendesk, Freshdesk, Jira Service Management,
   Intercom, CSV and JSON connectors.
+- ``support_engine.storage``: pluggable SQLAlchemy storage with DB_URL support (SQLite default).
+- ``support_engine.pii``: deterministic PII masking and anonymization.
 - ingestion and RAG (connectors, PII masking, chunking, hybrid retrieval, copilot);
 - analytics (sentiment, trends, risk radar, quality, root cause, deflection).
 
@@ -26,22 +28,44 @@ from support_engine.connectors import (
     load_tickets_json,
 )
 from support_engine.models import Comment, Ticket, TicketStatus
+from support_engine.pii import (
+    AnonymizationRule,
+    Anonymizer,
+    mask_pii,
+    mask_ticket,
+)
+from support_engine.storage import (
+    Store,
+    TicketStore,
+    build_engine,
+    load_env_db_url,
+    resolve_db_url,
+)
 
 __all__ = [
+    "AnonymizationRule",
+    "Anonymizer",
     "CSVConnector",
     "Comment",
     "FreshdeskConnector",
     "IntercomConnector",
     "JSONConnector",
     "JiraSMConnector",
+    "Store",
     "Ticket",
     "TicketConnector",
     "TicketStatus",
+    "TicketStore",
     "ZendeskConnector",
+    "build_engine",
     "get_connector",
+    "load_env_db_url",
     "load_tickets_csv",
     "load_tickets_file",
     "load_tickets_json",
+    "mask_pii",
+    "mask_ticket",
+    "resolve_db_url",
 ]
 
 __version__ = "0.1.0"
