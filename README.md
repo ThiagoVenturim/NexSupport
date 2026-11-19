@@ -133,6 +133,26 @@ print([r.ticket_id for r in report.high_risk()], report.roi.deflection_rate)
 
 See [docs/ANALYTICS.md](docs/ANALYTICS.md) for the formulas and every option.
 
+## Copilot, REST API and MCP
+
+`support_engine.copilot` assists the human agent on an open ticket: a suggested
+reply grounded in the support agent (cited curated answers, judge and levels), a
+short summary, the next step (send, review, escalate or handle manually, with a
+priority from the risk radar) and tone advice from the customer sentiment. The
+same operations are served over a REST API and an MCP server (stdio, or HTTP at
+`/mcp`). The API needs an access token from `SUPPORT_ENGINE_API_TOKEN` or the
+`.env` file and refuses to start without one.
+
+```python
+from support_engine.copilot import Copilot
+
+copilot = Copilot.from_tickets(history)
+s = copilot.suggest(open_ticket)
+print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
+```
+
+See [docs/COPILOT.md](docs/COPILOT.md) for the endpoints, the MCP tools and the security rules.
+
 ## Command-Line Interface
 
 ```bash
@@ -147,6 +167,12 @@ support-engine curate --input tests/fixtures/tickets_sample.json --feedback feed
 
 # Sentiment, trends, risk radar, quality, root cause and ROI as one JSON report
 support-engine analyze --input tests/fixtures/tickets_sample.json --agent-results results.jsonl --report-out analytics.json
+
+# Copilot REST API and MCP over HTTP (needs the api extra and SUPPORT_ENGINE_API_TOKEN in the env or .env)
+support-engine serve --input tests/fixtures/tickets_sample.json
+
+# Copilot MCP server over stdio
+support-engine mcp --input tests/fixtures/tickets_sample.json
 
 # List stored tickets
 support-engine list --status open

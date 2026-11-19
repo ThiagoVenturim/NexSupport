@@ -135,6 +135,26 @@ print([r.ticket_id for r in report.high_risk()], report.roi.deflection_rate)
 
 Veja [docs/ANALYTICS.md](docs/ANALYTICS.md) para as formulas e todas as opcoes.
 
+## Copiloto, API REST e MCP
+
+`support_engine.copilot` ajuda o atendente em um ticket aberto: resposta sugerida
+fundamentada no agente de atendimento (respostas curadas citadas, juiz e niveis),
+resumo curto, proximo passo (enviar, revisar, escalar ou tratar manualmente, com
+prioridade vinda do radar de risco) e orientacao de tom a partir do sentimento do
+cliente. As mesmas operacoes saem por uma API REST e por um servidor MCP (stdio ou
+HTTP em `/mcp`). A API exige um token de acesso em `SUPPORT_ENGINE_API_TOKEN` ou no
+arquivo `.env` e nao inicia sem ele.
+
+```python
+from support_engine.copilot import Copilot
+
+copilot = Copilot.from_tickets(history)
+s = copilot.suggest(open_ticket)
+print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
+```
+
+Veja [docs/COPILOT.md](docs/COPILOT.md) para os endpoints, as ferramentas MCP e as regras de seguranca.
+
 ## Linha de Comando (CLI)
 
 ```bash
@@ -149,6 +169,12 @@ support-engine curate --input tests/fixtures/tickets_sample.json --feedback feed
 
 # Sentimento, tendencias, radar de risco, qualidade, causa raiz e ROI em um relatorio JSON
 support-engine analyze --input tests/fixtures/tickets_sample.json --agent-results results.jsonl --report-out analytics.json
+
+# API REST do copiloto e MCP via HTTP (exige o extra api e SUPPORT_ENGINE_API_TOKEN no ambiente ou no .env)
+support-engine serve --input tests/fixtures/tickets_sample.json
+
+# Servidor MCP do copiloto via stdio
+support-engine mcp --input tests/fixtures/tickets_sample.json
 
 # Listar tickets armazenados
 support-engine list --status open
