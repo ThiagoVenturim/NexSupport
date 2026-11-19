@@ -179,6 +179,29 @@ def build_parser() -> argparse.ArgumentParser:
             help="SQLAlchemy URL of the database NexDash reads (default: in memory for metrics, DB_URL for the server)",
         )
 
+    # help desk integrations over OAuth and MCP
+    providers = ["zendesk", "freshdesk", "intercom", "jira_sm"]
+    login_parser = subparsers.add_parser(
+        "oauth-login",
+        help="Authorize a help desk over OAuth 2.0 and store the token in the .env file (never printed)",
+    )
+    sync_parser = subparsers.add_parser(
+        "sync", help="Fetch tickets from a help desk with the stored OAuth token, mask PII and store them"
+    )
+    for sub in (login_parser, sync_parser):
+        sub.add_argument("provider", choices=providers, help="Help desk platform")
+        sub.add_argument("--env-file", default=".env", help="File with the OAuth settings and tokens (default: .env)")
+    sync_parser.add_argument("--max-pages", type=int, default=10, help="Pages to fetch at most (default: 10)")
+    integrations_mcp_parser = subparsers.add_parser(
+        "integrations-mcp", help="MCP over stdio: list_tickets, suggest_reply and support_metrics on stored tickets"
+    )
+    integrations_mcp_parser.add_argument(
+        "--input", "-i", default=None, help="Ticket history for suggest_reply (CSV, JSON, or JSONL); optional"
+    )
+    serve_parser.add_argument(
+        "--integrations", action="store_true", help="Also serve the integration MCP tools at POST /mcp/integrations"
+    )
+
     # adjustable flows
     pipeline_parser = subparsers.add_parser(
         "pipeline", help="Run a configurable support flow (steps, order and parameters from YAML or a preset)"
@@ -566,7 +589,7 @@ def _build_copilot(args: argparse.Namespace, feedback_store: FeedbackStore | Non
 
 
 def cmd_serve(args: argparse.Namespace, feedback_store: FeedbackStore | None) -> int:
-    from support_engine.copilot import InterfaceConfig, TokenError, load_token
+    from support_engine.copilot import CopilotService, InterfaceConfig, TokenError, load_token
 
     config = InterfaceConfig(env_file=args.env_file or None)
     try:
@@ -584,8 +607,16 @@ def cmd_serve(args: argparse.Namespace, feedback_store: FeedbackStore | None) ->
     copilot = _build_copilot(args, feedback_store)
     if copilot is None:
         return 1
-    app = create_app(copilot, token=token, config=config)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    if not args.integrations:
+        app = create_app(copilot, token=token, config=config)
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+        return 0
+    from support_engine.integrations import IntegrationsMCPServer, IntegrationsService
+
+    with TicketStore(target=args.db_url) as store:
+        integrations = IntegrationsMCPServer(IntegrationsService(store, CopilotService(copilot)))
+        app = create_app(copilot, token=token, config=config, integrations=integrations)
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0
 
 
@@ -600,6 +631,64 @@ def cmd_mcp(args: argparse.Namespace, feedback_store: FeedbackStore | None, stdi
     if copilot is None:
         return 1
     CopilotMCPServer(CopilotService(copilot)).run_stdio(stdin, stdout)
+    return 0
+
+
+def cmd_oauth_login(args: argparse.Namespace, stdin=None, stdout=None) -> int:
+    from support_engine.integrations import EnvFileTokenStore, OAuthError, build_flow
+
+    reader = stdin or sys.stdin
+    writer = stdout or sys.stdout
+    try:
+        flow = build_flow(args.provider, env_file=args.env_file)
+        store = EnvFileTokenStore(args.env_file)
+        request = flow.start()
+        writer.write(f"Open this URL, approve the access, then paste the URL you are sent back to:\n{request.url}\n")
+        writer.flush()
+        redirected = reader.readline().strip()
+        token = flow.finish_from_redirect(redirected)
+        store.save(args.provider, token)
+    except OAuthError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
+    scopes = " ".join(token.scopes) or "as configured on the app"
+    writer.write(f"Saved the {args.provider} token to {Path(args.env_file).name} (scopes: {scopes}).\n")
+    return 0
+
+
+def cmd_sync(args: argparse.Namespace, store: TicketStore) -> int:
+    from support_engine.integrations import OAuthError, build_integration, sync_tickets
+
+    try:
+        with build_integration(args.provider, env_file=args.env_file) as integration:
+            result = sync_tickets(integration.connector, store=store, max_pages=args.max_pages)
+    except OAuthError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
+    except Exception as exc:
+        # The type only: HTTP errors carry URLs and bodies.
+        sys.stderr.write(f"Error: sync from {args.provider} failed ({type(exc).__name__}).\n")
+        return 1
+    masked = ", ".join(f"{k}={v}" for k, v in sorted(result.stats.pii_masked.items())) or "none"
+    sys.stdout.write(f"Synced {result.stats.tickets} ticket(s) from {args.provider}. PII masked: {masked}.\n")
+    return 0
+
+
+def cmd_integrations_mcp(args: argparse.Namespace, store: TicketStore, stdin=None, stdout=None) -> int:
+    import logging
+
+    from support_engine.copilot import CopilotService
+    from support_engine.integrations import IntegrationsMCPServer, IntegrationsService
+
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    copilot = None
+    if args.input:
+        args.feedback = None
+        built = _build_copilot(args, None)
+        if built is None:
+            return 1
+        copilot = CopilotService(built)
+    IntegrationsMCPServer(IntegrationsService(store, copilot)).run_stdio(stdin, stdout)
     return 0
 
 
@@ -760,6 +849,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "metrics-server":
         return cmd_metrics_server(args)
 
+    if args.command == "oauth-login":
+        return cmd_oauth_login(args)
+
     if args.command in ("serve", "mcp"):
         handler = cmd_serve if args.command == "serve" else cmd_mcp
         if not args.save_feedback:
@@ -784,6 +876,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_show(args, store)
         if args.command == "stats":
             return cmd_stats(args, store)
+        if args.command == "sync":
+            return cmd_sync(args, store)
+        if args.command == "integrations-mcp":
+            return cmd_integrations_mcp(args, store)
 
     return 0
 
