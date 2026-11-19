@@ -155,6 +155,22 @@ print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
 
 Veja [docs/COPILOT.md](docs/COPILOT.md) para os endpoints, as ferramentas MCP e as regras de seguranca.
 
+## Integracao com outros projetos (NexLink)
+
+`support_engine.nexlink` deixa os outros projetos do portfolio chamarem o Support
+Engine com um envelope de mensagem unico (remetente, destino, acao, parametros, id
+de correlacao): o NexHub dispara uma ingestao (`support.ingest`), o NexCoder le
+metricas de suporte (`support.metrics`) e qualquer cliente com o escopo pede uma
+resposta sugerida (`support.suggest_reply`). O Support Engine, por sua vez, pede ao
+motor de relatorios do nexdash (askdash) o dashboard `support_metrics`. Cada projeto
+chamador tem token e lista de escopos proprios, lidos do ambiente ou do `.env`.
+
+```bash
+python examples/nexlink/nexcoder_reads_metrics.py   # offline: NexCoder -> Support Engine -> nexdash
+```
+
+Veja [docs/NEXLINK.md](docs/NEXLINK.md) para o envelope, as acoes, os escopos e os exemplos.
+
 ## Metricas de Atendimento no askdash
 
 `support_engine.metrics` alimenta o motor de relatorios do askdash (NexDash) com

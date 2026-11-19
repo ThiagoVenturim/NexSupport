@@ -153,6 +153,22 @@ print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
 
 See [docs/COPILOT.md](docs/COPILOT.md) for the endpoints, the MCP tools and the security rules.
 
+## Integration with other projects (NexLink)
+
+`support_engine.nexlink` lets the other projects of the portfolio call the Support
+Engine with one message envelope (sender, target, action, parameters, correlation
+id): NexHub can trigger an ingestion (`support.ingest`), NexCoder can read support
+metrics (`support.metrics`), and any client with the scope can ask for a suggested
+reply (`support.suggest_reply`). The Support Engine in turn asks the nexdash
+(askdash) report engine for the `support_metrics` dashboard. Each calling project has
+its own token and scope list, read from the environment or `.env`.
+
+```bash
+python examples/nexlink/nexcoder_reads_metrics.py   # offline: NexCoder -> Support Engine -> nexdash
+```
+
+See [docs/NEXLINK.md](docs/NEXLINK.md) for the envelope, the actions, the scopes and the examples.
+
 ## Support Metrics on askdash
 
 `support_engine.metrics` feeds the askdash (NexDash) report engine with support
