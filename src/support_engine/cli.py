@@ -10,8 +10,18 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
+from support_engine.analytics import (
+    AnalyticsConfig,
+    AnalyticsPipeline,
+    Outcome,
+    QualityConfig,
+    RiskConfig,
+    ROIConfig,
+    TrendConfig,
+)
 from support_engine.connectors.files import load_tickets_file
 from support_engine.curation import CurationConfig, CurationPipeline, Feedback, FeedbackConfig, FeedbackStore, GapConfig
 from support_engine.ingestion import ChunkingConfig, DedupConfig, IngestionConfig, IngestionPipeline
@@ -91,6 +101,27 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument(
         "--gap-min-occurrences", type=int, default=3, help="Repeats of a gap before an article is suggested"
     )
+
+    # analyze subcommand
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Ingest tickets and report sentiment, trends, risk radar, service quality, root cause and ROI",
+    )
+    analyze_parser.add_argument("--input", "-i", required=True, help="Path to the input file (CSV, JSON, or JSONL)")
+    analyze_parser.add_argument(
+        "--agent-results", default=None, help="Agent outcomes (action, level, cached, attempts) as JSON Lines or a list"
+    )
+    analyze_parser.add_argument("--report-out", default=None, help="Write the full report as JSON")
+    analyze_parser.add_argument("--now", default=None, help="ISO time the report is computed for (default: latest)")
+    analyze_parser.add_argument("--window-hours", type=int, default=24, help="Trend window size in hours")
+    analyze_parser.add_argument("--baseline-windows", type=int, default=7, help="Trend windows in the baseline")
+    analyze_parser.add_argument("--min-count", type=int, default=3, help="Tickets in a window needed to alert")
+    analyze_parser.add_argument("--group-by", default="product", help="Service quality grouping field")
+    analyze_parser.add_argument("--include-resolved", action="store_true", help="Rate solved tickets on the radar")
+    analyze_parser.add_argument("--currency", default="USD", help="Currency of the ROI money values")
+    analyze_parser.add_argument("--hourly-cost", type=float, default=30.0, help="Cost of one support agent hour")
+    analyze_parser.add_argument("--handle-minutes", type=float, default=12.0, help="Human minutes per question")
+    analyze_parser.add_argument("--fixed-cost", type=float, default=0.0, help="Platform cost of the period")
 
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
@@ -249,6 +280,74 @@ def cmd_curate(args: argparse.Namespace, feedback_store: FeedbackStore | None) -
     return 0
 
 
+def _load_records(path: Path) -> list[dict]:
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        return json.loads(raw)
+    return [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return 1
+    try:
+        config = AnalyticsConfig(
+            trends=TrendConfig(
+                window_hours=args.window_hours, baseline_windows=args.baseline_windows, min_count=args.min_count
+            ),
+            risk=RiskConfig(include_resolved=args.include_resolved),
+            quality=QualityConfig(group_by=args.group_by),
+            roi=ROIConfig(
+                currency=args.currency,
+                agent_hourly_cost=args.hourly_cost,
+                handle_minutes=args.handle_minutes,
+                fixed_cost=args.fixed_cost,
+            ),
+        )
+        now = datetime.fromisoformat(args.now) if args.now else None
+        if now is not None and now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        results = None
+        if args.agent_results:
+            results_path = Path(args.agent_results)
+            if not results_path.is_file():
+                sys.stderr.write(f"Error: agent results file '{args.agent_results}' not found.\n")
+                return 1
+            results = [Outcome.of(r) for r in _load_records(results_path)]
+    except ValueError as exc:
+        # Report only the error type; the message could echo file content.
+        sys.stderr.write(f"Error: invalid analytics settings or agent results ({type(exc).__name__}).\n")
+        return 2
+
+    ingested = IngestionPipeline().process(load_tickets_file(path))
+    report = AnalyticsPipeline(config).run(ingested.tickets, results, now=now)
+    if args.report_out:
+        out = Path(args.report_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    s = report.sentiment
+    line = (
+        f"Analyzed {report.tickets} ticket(s): mean sentiment {s.mean:+.2f}, {s.negative_share:.0%} negative, "
+        f"{s.worsening} worsening. Trends {len(report.trends)}, {len(report.alerts)} alert(s). "
+        f"Risk: {len(report.high_risk())} high of {len(report.risk)} rated. "
+        f"Root cause groups {len(report.root_causes)}."
+    )
+    if report.roi is not None:
+        r = report.roi
+        roi = f"{r.roi:.2f}" if r.roi is not None else "-"
+        line += (
+            f" Deflection {r.deflection_rate:.0%} of {r.questions}, {r.hours_saved:.1f} h saved, "
+            f"net {r.net_savings:.2f} {r.currency}, ROI {roi}."
+        )
+    sys.stdout.write(line + "\n")
+    return 0
+
+
 def cmd_list(args: argparse.Namespace, store: TicketStore) -> int:
     status_filter = TicketStatus(args.status) if args.status else None
     tickets = store.list_tickets(status=status_filter, limit=args.limit, offset=args.offset)
@@ -315,6 +414,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "ingest" and args.no_store:
         return cmd_ingest(args, None)
+
+    if args.command == "analyze":
+        return cmd_analyze(args)
 
     if args.command == "curate":
         if not (args.save_feedback or args.with_stored_feedback):
