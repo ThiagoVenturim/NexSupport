@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6", "fastapi>=0.110"]
 api = ["fastapi>=0.110", "uvicorn>=0.29"]
+# askdash report engine for support_engine.metrics; install the askdash checkout first.
 nexdash = ["nexdash"]
 postgres = ["psycopg[binary]>=3.1"]
 mysql = ["pymysql>=1.1"]
