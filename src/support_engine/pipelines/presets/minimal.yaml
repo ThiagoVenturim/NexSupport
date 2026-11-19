@@ -1,0 +1,12 @@
+name: minimal
+description: >-
+  Smallest safe flow: clean and mask the tickets, chunk them, index the chunks and answer
+  the questions of the run. No curation, so every answer is a draft for review.
+steps:
+  - use: cleanup
+  - use: pii_mask
+  - use: chunking
+    params:
+      include_summary: true
+  - use: index
+  - use: answer

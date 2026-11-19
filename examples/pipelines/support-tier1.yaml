@@ -1,0 +1,29 @@
+# Tier 1 support flow: the full preset with stricter dedup and curation and no analytics.
+# Run it: support-engine pipeline run -f examples/pipelines/support-tier1.yaml -i tickets.json -q "..."
+name: support-tier1
+description: Full flow tuned for tier 1, answers only from well rated tickets.
+extends: full
+engine: auto
+steps:
+  - use: dedup
+    params:
+      threshold: 0.9
+  - use: curation
+    params:
+      min_score: 0.3
+      feedback:
+        superseded_policy: drop
+  - use: answer
+    params:
+      max_sources: 2
+      agent:
+        retrieval:
+          k: 3
+        levels:
+          level1_min_score: 0.85
+  - use: copilot
+    params:
+      copilot:
+        add_opening: true
+  - use: analytics
+    enabled: false

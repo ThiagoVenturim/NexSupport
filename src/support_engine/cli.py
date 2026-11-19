@@ -179,6 +179,24 @@ def build_parser() -> argparse.ArgumentParser:
             help="SQLAlchemy URL of the database NexDash reads (default: in memory for metrics, DB_URL for the server)",
         )
 
+    # adjustable flows
+    pipeline_parser = subparsers.add_parser(
+        "pipeline", help="Run a configurable support flow (steps, order and parameters from YAML or a preset)"
+    )
+    pipeline_sub = pipeline_parser.add_subparsers(dest="pipeline_command")
+    pipeline_sub.add_parser("steps", help="List the catalog of steps, with inputs, outputs and parameters")
+    pipeline_sub.add_parser("presets", help="List the ready-made flows")
+    show_flow = pipeline_sub.add_parser("show", help="Print a flow with its presets resolved, as YAML")
+    show_flow.add_argument("--flow", "-f", required=True, help="Preset name or path to a YAML or JSON flow")
+    run_flow = pipeline_sub.add_parser("run", help="Run a flow over tickets from a file")
+    run_flow.add_argument("--flow", "-f", required=True, help="Preset name or path to a YAML or JSON flow")
+    run_flow.add_argument("--input", "-i", required=True, help="Path to the input file (CSV, JSON, or JSONL)")
+    run_flow.add_argument("--feedback", default=None, help="Feedback as JSON Lines or a JSON list")
+    run_flow.add_argument("--question", "-q", action="append", default=[], help="Question to answer (repeatable)")
+    run_flow.add_argument("--open-tickets", default=None, help="Open tickets for the copilot step (CSV, JSON, JSONL)")
+    run_flow.add_argument("--now", default=None, help="ISO time the run is computed for (default: latest event)")
+    run_flow.add_argument("--report-out", default=None, help="Write the full result as JSON (masked text)")
+
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
     list_parser.add_argument(
@@ -641,6 +659,84 @@ def cmd_stats(_args: argparse.Namespace, store: TicketStore) -> int:
     return 0
 
 
+def cmd_pipeline(args: argparse.Namespace) -> int:
+    from support_engine.pipelines import Pipeline, default_catalog, dump_config, list_presets, load_config
+
+    action = args.pipeline_command
+    if action == "steps":
+        for spec in default_catalog():
+            inputs = ", ".join(spec.requires) or "-"
+            outputs = ", ".join(spec.provides) or "-"
+            sys.stdout.write(f"{spec.name:<10} [{spec.category}] {spec.description} (in: {inputs}; out: {outputs})\n")
+        return 0
+    if action == "presets":
+        for name in list_presets():
+            config = load_config(name)
+            steps = " -> ".join(s.id for s in config.enabled_steps())
+            sys.stdout.write(f"{name}: {steps}\n")
+        return 0
+    if action not in ("show", "run"):
+        sys.stderr.write("Error: choose one of: steps, presets, show, run.\n")
+        return 2
+
+    try:
+        pipeline = Pipeline.from_config(args.flow)
+    except FileNotFoundError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 1
+    except (KeyError, ValueError) as exc:
+        # Messages name steps and parameters only, never values from the flow file.
+        sys.stderr.write(f"Error: invalid flow: {exc}\n")
+        return 2
+    if action == "show":
+        sys.stdout.write(dump_config(pipeline.config))
+        return 0
+
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return 1
+    try:
+        feedback = []
+        if args.feedback:
+            feedback_path = Path(args.feedback)
+            if not feedback_path.is_file():
+                sys.stderr.write(f"Error: feedback file '{args.feedback}' not found.\n")
+                return 1
+            feedback = _load_feedback(feedback_path)
+        open_tickets = []
+        if args.open_tickets:
+            open_path = Path(args.open_tickets)
+            if not open_path.is_file():
+                sys.stderr.write(f"Error: open tickets file '{args.open_tickets}' not found.\n")
+                return 1
+            open_tickets = load_tickets_file(open_path)
+        now = datetime.fromisoformat(args.now) if args.now else None
+        if now is not None and now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+    except ValueError as exc:
+        sys.stderr.write(f"Error: invalid feedback, open tickets or time ({type(exc).__name__}).\n")
+        return 2
+
+    result = pipeline.run(
+        load_tickets_file(path), feedback=feedback, questions=args.question, open_tickets=open_tickets, now=now
+    )
+    if args.report_out:
+        out = Path(args.report_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+
+    for record in result.steps:
+        counters = ", ".join(f"{k}={v}" for k, v in record.counters.items())
+        detail = f" ({record.error})" if record.error else (f": {counters}" if counters else "")
+        sys.stdout.write(f"  {record.name:<10} {record.status}{detail}\n")
+    sys.stdout.write(
+        f"Flow '{result.pipeline}' {result.status} on engine {result.engine}: {len(result.tickets)} ticket(s), "
+        f"{len(result.chunks)} chunk(s), {len(result.answers)} answer(s), {len(result.suggestions)} suggestion(s).\n"
+    )
+    return 0 if result.status == "completed" else 3
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -654,6 +750,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "analyze":
         return cmd_analyze(args)
+
+    if args.command == "pipeline":
+        return cmd_pipeline(args)
 
     if args.command == "metrics":
         return cmd_metrics(args)
