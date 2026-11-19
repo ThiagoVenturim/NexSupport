@@ -153,6 +153,27 @@ print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
 
 See [docs/COPILOT.md](docs/COPILOT.md) for the endpoints, the MCP tools and the security rules.
 
+## Support Metrics on askdash
+
+`support_engine.metrics` feeds the askdash (NexDash) report engine with support
+dashboards: volume, response time, resolution, CSAT, sentiment and deflection
+(NexDash `support_metrics`), plus risk radar, SLA breaches, trend alerts, root
+causes and agent ROI (`support_insights`), per period, team and queue. NexSupport
+writes the tables into the NexDash database; clients ask NexDash for the report
+over REST or MCP with `NexDashClient`. Needs the `nexdash` package.
+
+```python
+from support_engine.metrics import build_support_metrics
+from support_engine.metrics.askdash import build_engine, load_into_nexdash
+
+metrics = build_support_metrics(tickets, agent_results)
+load_into_nexdash(executor, metrics)
+html = build_engine(executor).render({"model": "support_insights", "parameters": {"team": "tier1"}})
+```
+
+`python examples/metrics_askdash/nexsupport_to_nexdash.py --out dashboards/` runs the
+whole round trip offline on synthetic tickets. See [docs/METRICS.md](docs/METRICS.md).
+
 ## Command-Line Interface
 
 ```bash
@@ -173,6 +194,12 @@ support-engine serve --input tests/fixtures/tickets_sample.json
 
 # Copilot MCP server over stdio
 support-engine mcp --input tests/fixtures/tickets_sample.json
+
+# Support dashboards on askdash: load the NexDash tables and render them (needs nexdash)
+support-engine metrics --input tickets.json --agent-results results.jsonl --nexdash-db sqlite:///nexdash.db --dashboard-out dashboards/
+
+# NexDash REST and MCP with the support report models (tokens from the NexDash environment)
+support-engine metrics-server --nexdash-db sqlite:///nexdash.db
 
 # List stored tickets
 support-engine list --status open
@@ -203,6 +230,7 @@ support-engine stats
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e path/to/nexcoder/packages/core
+.venv/bin/pip install -e path/to/askdash   # nexdash, for support_engine.metrics (tests skip it when missing)
 .venv/bin/pip install -e ".[dev]"
 git config core.hooksPath .githooks
 .venv/bin/python -m pytest
