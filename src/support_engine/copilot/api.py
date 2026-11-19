@@ -8,6 +8,7 @@ Endpoints (all but ``/health`` need the access token)::
     POST /v1/summary      summary of a ticket
     POST /v1/feedback     the human agent's verdict on a suggestion (feeds curation)
     POST /mcp             MCP over HTTP (JSON-RPC 2.0), same tools as the stdio server
+    POST /mcp/integrations  MCP tools over the synced help desk tickets (only when `integrations` is given)
 
 The token comes from ``SUPPORT_ENGINE_API_TOKEN`` or the ``.env`` file (see ``auth``); the app
 refuses to start without one. Validation errors list field locations and error types only, so
@@ -40,6 +41,7 @@ def create_app(
     *,
     token: str | None = None,
     config: InterfaceConfig | None = None,
+    integrations: Any = None,
 ) -> Any:
     """FastAPI app over ``copilot``. Without ``token`` it is read with ``load_token`` (env, then .env)."""
     try:
@@ -122,5 +124,19 @@ def create_app(
         if answer is None:
             return JSONResponse(status_code=202, content=None)
         return JSONResponse(content=answer)
+
+    if integrations is not None:
+
+        @app.post("/mcp/integrations")
+        async def mcp_integrations(request: Request):
+            raw = await request.body()
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return JSONResponse(status_code=400, content=CopilotMCPServer._error(None, -32700, "Parse error."))
+            answer = await integrations.handle_payload(payload)
+            if answer is None:
+                return JSONResponse(status_code=202, content=None)
+            return JSONResponse(content=answer)
 
     return app
