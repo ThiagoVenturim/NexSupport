@@ -123,6 +123,21 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--handle-minutes", type=float, default=12.0, help="Human minutes per question")
     analyze_parser.add_argument("--fixed-cost", type=float, default=0.0, help="Platform cost of the period")
 
+    # copilot interfaces
+    serve_parser = subparsers.add_parser(
+        "serve", help="Run the copilot REST API (and MCP over HTTP) over curated tickets; needs an access token"
+    )
+    mcp_parser = subparsers.add_parser("mcp", help="Run the copilot MCP server over stdio")
+    for sub in (serve_parser, mcp_parser):
+        sub.add_argument("--input", "-i", required=True, help="Ticket history to answer from (CSV, JSON, or JSONL)")
+        sub.add_argument("--feedback", default=None, help="Feedback as JSON Lines or a JSON list")
+        sub.add_argument(
+            "--save-feedback", action="store_true", help="Store feedback recorded by the copilot in the database"
+        )
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
+    serve_parser.add_argument("--env-file", default=".env", help="File read when SUPPORT_ENGINE_API_TOKEN is unset")
+
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
     list_parser.add_argument(
@@ -348,6 +363,65 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_copilot(args: argparse.Namespace, feedback_store: FeedbackStore | None):
+    from support_engine.copilot import Copilot
+
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return None
+    feedback: list[Feedback] = []
+    if args.feedback:
+        fb_path = Path(args.feedback)
+        if not fb_path.is_file():
+            sys.stderr.write(f"Error: feedback file '{args.feedback}' not found.\n")
+            return None
+        try:
+            feedback = _load_feedback(fb_path)
+        except ValueError as exc:
+            sys.stderr.write(f"Error: invalid feedback ({type(exc).__name__}).\n")
+            return None
+    return Copilot.from_tickets(load_tickets_file(path), feedback, feedback_store=feedback_store)
+
+
+def cmd_serve(args: argparse.Namespace, feedback_store: FeedbackStore | None) -> int:
+    from support_engine.copilot import InterfaceConfig, TokenError, load_token
+
+    config = InterfaceConfig(env_file=args.env_file or None)
+    try:
+        token = load_token(config.token_env, config.env_file, min_chars=config.min_token_chars)
+    except TokenError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
+    try:
+        import uvicorn
+
+        from support_engine.copilot.api import create_app
+    except ImportError:
+        sys.stderr.write("Error: the REST API needs the 'api' extra: pip install 'support-intelligence-engine[api]'\n")
+        return 2
+    copilot = _build_copilot(args, feedback_store)
+    if copilot is None:
+        return 1
+    app = create_app(copilot, token=token, config=config)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def cmd_mcp(args: argparse.Namespace, feedback_store: FeedbackStore | None, stdin=None, stdout=None) -> int:
+    import logging
+
+    from support_engine.copilot import CopilotMCPServer, CopilotService
+
+    # stdout carries protocol messages only.
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    copilot = _build_copilot(args, feedback_store)
+    if copilot is None:
+        return 1
+    CopilotMCPServer(CopilotService(copilot)).run_stdio(stdin, stdout)
+    return 0
+
+
 def cmd_list(args: argparse.Namespace, store: TicketStore) -> int:
     status_filter = TicketStatus(args.status) if args.status else None
     tickets = store.list_tickets(status=status_filter, limit=args.limit, offset=args.offset)
@@ -417,6 +491,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "analyze":
         return cmd_analyze(args)
+
+    if args.command in ("serve", "mcp"):
+        handler = cmd_serve if args.command == "serve" else cmd_mcp
+        if not args.save_feedback:
+            return handler(args, None)
+        with FeedbackStore(target=args.db_url) as feedback_store:
+            return handler(args, feedback_store)
 
     if args.command == "curate":
         if not (args.save_feedback or args.with_stored_feedback):
