@@ -1,0 +1,18 @@
+name: full
+description: >-
+  Whole support flow: cleanup, PII masking, chunking, near-duplicate removal, answer
+  curation with the feedback loop, the knowledge base, agent answers, copilot suggestions
+  for open tickets and analytics. Same defaults as the Python API.
+steps:
+  - use: cleanup
+  - use: pii_mask
+  - use: chunking
+  - use: dedup
+    params:
+      scope: corpus
+      threshold: 0.85
+  - use: curation
+  - use: index
+  - use: answer
+  - use: copilot
+  - use: analytics

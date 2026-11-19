@@ -155,6 +155,27 @@ print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
 
 Veja [docs/COPILOT.md](docs/COPILOT.md) para os endpoints, as ferramentas MCP e as regras de seguranca.
 
+## Fluxos de Atendimento Ajustaveis
+
+`support_engine.pipelines` executa o fluxo de atendimento (ingestao, limpeza e
+mascaramento de PII, chunking e dedup, curadoria, base de conhecimento, respostas e
+copiloto, analise) a partir de um arquivo YAML, sem codigo. Cada etapa vem de um
+catalogo de etapas reutilizaveis, pode ser desligada e recebe os parametros do modulo
+que ela usa. Os presets `minimal` e `full` podem ser estendidos. Os fluxos rodam no
+motor de pipelines LangGraph do `nexcoder-agents` (extra `pipelines`) ou em um laco
+local, e respondem offline por padrao.
+
+```python
+from support_engine.pipelines import Pipeline
+
+result = Pipeline.from_config("examples/pipelines/support-tier1.yaml").run(
+    tickets, feedback=feedback, questions=["The invoice export fails"], open_tickets=open_tickets
+)
+print(result.summary())
+```
+
+Veja [docs/PIPELINES.md](docs/PIPELINES.md) para as etapas, as regras do arquivo de fluxo e como criar etapas.
+
 ## Integracao com outros projetos (NexLink)
 
 `support_engine.nexlink` deixa os outros projetos do portfolio chamarem o Support
@@ -237,6 +258,10 @@ support-engine metrics --input tickets.json --agent-results results.jsonl --nexd
 
 # REST e MCP do NexDash com os modelos de atendimento (tokens do ambiente do NexDash)
 support-engine metrics-server --nexdash-db sqlite:///nexdash.db
+
+# Executar um fluxo configuravel (preset ou arquivo YAML) sobre tickets; listar o catalogo de etapas
+support-engine pipeline run -f full -i tickets.json --open-tickets open.json -q "The invoice export fails"
+support-engine pipeline steps
 
 # Listar tickets armazenados
 support-engine list --status open

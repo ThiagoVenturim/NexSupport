@@ -153,6 +153,26 @@ print(s.reply, s.next_step.action, s.tone.tone, s.summary.text)
 
 See [docs/COPILOT.md](docs/COPILOT.md) for the endpoints, the MCP tools and the security rules.
 
+## Adjustable Support Flows
+
+`support_engine.pipelines` runs the support flow (ingestion, cleanup and PII masking,
+chunking and dedup, curation, knowledge base, answers and copilot, analytics) from a
+YAML file instead of code. Each step comes from a catalog of reusable steps, can be
+switched off and takes the parameters of the module it wraps. The `minimal` and
+`full` presets can be extended. Flows run on the LangGraph pipeline engine of
+`nexcoder-agents` (`pipelines` extra) or on a local loop, and answer offline by default.
+
+```python
+from support_engine.pipelines import Pipeline
+
+result = Pipeline.from_config("examples/pipelines/support-tier1.yaml").run(
+    tickets, feedback=feedback, questions=["The invoice export fails"], open_tickets=open_tickets
+)
+print(result.summary())
+```
+
+See [docs/PIPELINES.md](docs/PIPELINES.md) for the steps, the flow file rules and how to add steps.
+
 ## Integration with other projects (NexLink)
 
 `support_engine.nexlink` lets the other projects of the portfolio call the Support
@@ -235,6 +255,10 @@ support-engine metrics --input tickets.json --agent-results results.jsonl --nexd
 
 # NexDash REST and MCP with the support report models (tokens from the NexDash environment)
 support-engine metrics-server --nexdash-db sqlite:///nexdash.db
+
+# Run a configurable flow (preset or YAML file) over tickets; list the step catalog
+support-engine pipeline run -f full -i tickets.json --open-tickets open.json -q "The invoice export fails"
+support-engine pipeline steps
 
 # List stored tickets
 support-engine list --status open
