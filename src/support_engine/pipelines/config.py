@@ -178,7 +178,7 @@ def _errors(exc: ValidationError) -> str:
 
 def _load(source: str | Path | Mapping[str, Any] | PipelineConfig) -> PipelineConfig:
     if isinstance(source, PipelineConfig):
-        return _resolve(source.model_dump(exclude_none=True)) if source.extends else source
+        return _resolve(source.model_dump(exclude_unset=True)) if source.extends else source
     if isinstance(source, Mapping):
         return _resolve(source)
     if isinstance(source, str) and source in list_presets() and not Path(source).is_file():
