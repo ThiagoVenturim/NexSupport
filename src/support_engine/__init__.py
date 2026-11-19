@@ -10,12 +10,14 @@ operational analytics:
 - ``support_engine.pii``: deterministic PII masking and anonymization (regex rules, names, NER hook).
 - ``support_engine.ingestion``: cleanup, PII masking, chunking and near-duplicate removal.
 - ``support_engine.curation``: resolution score, human feedback loop, knowledge gaps and quality metrics.
-- ingestion and RAG (connectors, PII masking, chunking, hybrid retrieval, copilot);
-- analytics (sentiment, trends, risk radar, quality, root cause, deflection).
+- `support_engine.agent`: LangGraph support agent with guards, citations, a judge and levels 1/2/3.
+- `support_engine.analytics`: multilingual sentiment, live trends, risk radar, service quality,
+  root cause, deflection and ROI.
 
 Models, tracing and retrieval primitives come from ``nexcoder-core``.
 """
 
+from support_engine.analytics import AnalyticsConfig, AnalyticsPipeline, AnalyticsReport, analyze
 from support_engine.connectors import (
     CSVConnector,
     FreshdeskConnector,
@@ -68,6 +70,9 @@ from support_engine.storage import (
 )
 
 __all__ = [
+    "AnalyticsConfig",
+    "AnalyticsPipeline",
+    "AnalyticsReport",
     "AnonymizationRule",
     "Anonymizer",
     "CSVConnector",
@@ -96,6 +101,7 @@ __all__ = [
     "TicketStatus",
     "TicketStore",
     "ZendeskConnector",
+    "analyze",
     "build_engine",
     "build_ner_detector",
     "curate",
