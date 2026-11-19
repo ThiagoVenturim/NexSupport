@@ -26,7 +26,7 @@ class SentimentConfig(BaseModel):
     positive_threshold: float = Field(default=0.2, ge=0.0, le=1.0, description="score at or above is positive")
     negation_window: int = Field(default=3, ge=0, description="words after a negator whose polarity flips")
     intensifier: float = Field(default=0.5, ge=0.0, description="extra weight added by words such as 'very'")
-    normalisation: float = Field(default=4.0, gt=0.0, description="alpha in score = s / sqrt(s^2 + alpha)")
+    normalisation: float = Field(default=15.0, gt=0.0, description="alpha in score = s / sqrt(s^2 + alpha)")
     recency_weight: float = Field(
         default=1.5, ge=1.0, description="weight of the last message relative to the first in the ticket mean"
     )

@@ -52,22 +52,22 @@ POSITIVE: dict[str, float] = {
 NEGATIVE: dict[str, float] = {
     # English
     "bad": -2, "terrible": -3, "awful": -3, "horrible": -3, "worst": -3, "broken": -2, "broke": -2,
-    "fail": -2, "fails": -2, "failed": -2, "failing": -2, "failure": -2, "error": -1, "errors": -1, "bug": -1,
+    "fail": -1, "fails": -1, "failed": -1, "failing": -1, "failure": -1, "error": -0.5, "errors": -0.5, "bug": -0.5,
     "crash": -2, "crashes": -2, "crashed": -2, "slow": -1, "frustrated": -2, "frustrating": -2,
     "frustration": -2, "angry": -3, "annoyed": -2, "annoying": -2, "disappointed": -2, "disappointing": -2,
-    "useless": -3, "unacceptable": -3, "ridiculous": -3, "poor": -2, "problem": -1, "problems": -1,
-    "issue": -1, "issues": -1, "wrong": -2, "unhappy": -2, "upset": -2, "hate": -3, "waste": -2, "stuck": -1,
+    "useless": -3, "unacceptable": -3, "ridiculous": -3, "poor": -2, "problem": -0.5, "problems": -0.5,
+    "issue": -0.5, "issues": -0.5, "wrong": -2, "unhappy": -2, "upset": -2, "hate": -3, "waste": -2, "stuck": -1,
     "lost": -1, "impossible": -2, "worse": -2, "furious": -3, "nightmare": -3,
     # Portuguese
-    "ruim": -2, "pessimo": -3, "pessima": -3, "horrivel": -3, "terrivel": -3, "erro": -1, "erros": -1,
-    "falha": -2, "falhou": -2, "falhando": -2, "quebrado": -2, "quebrou": -2, "travou": -2, "trava": -1,
+    "ruim": -2, "pessimo": -3, "pessima": -3, "horrivel": -3, "terrivel": -3, "erro": -0.5, "erros": -0.5,
+    "falha": -1, "falhou": -1, "falhando": -1, "quebrado": -2, "quebrou": -2, "travou": -2, "trava": -1,
     "travando": -2, "lento": -1, "lenta": -1, "demora": -1, "demorado": -1, "frustrado": -2, "frustrada": -2,
     "irritado": -2, "irritada": -2, "chateado": -2, "chateada": -2, "decepcionado": -2, "decepcionada": -2,
-    "inutil": -3, "absurdo": -3, "ridiculo": -3, "problema": -1, "problemas": -1, "insatisfeito": -2,
+    "inutil": -3, "absurdo": -3, "ridiculo": -3, "problema": -0.5, "problemas": -0.5, "insatisfeito": -2,
     "insatisfeita": -2, "raiva": -3, "descaso": -3, "inaceitavel": -3, "pior": -2, "impossivel": -2,
     "perdi": -1, "perdido": -1, "furioso": -3, "furiosa": -3,
     # Spanish
-    "malo": -2, "mala": -2, "pesimo": -3, "pesima": -3, "fallo": -2, "falla": -2, "roto": -2,
+    "malo": -2, "mala": -2, "pesimo": -3, "pesima": -3, "fallo": -1, "falla": -1, "roto": -2,
     "enojado": -2, "enojada": -2, "molesto": -2, "molesta": -2, "peor": -2, "imposible": -2,
     "inaceptable": -3,
 }
@@ -127,7 +127,7 @@ class TicketSentiment(BaseModel):
     """Sentiment of the customer side of one ticket."""
 
     ticket_id: str
-    score: float = Field(ge=-1.0, le=1.0, description="recency weighted mean of the messages")
+    score: float = Field(default=0.0, ge=-1.0, le=1.0, description="recency weighted mean of the messages")
     label: Label = "neutral"
     first: float = 0.0
     last: float = 0.0
