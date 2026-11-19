@@ -96,6 +96,25 @@ print(result.metrics.mean_score, len(result.suggestions))
 
 Veja [docs/CURATION.md](docs/CURATION.md) para a formula do score e todas as opcoes.
 
+## Agente de Atendimento
+
+`support_engine.agent` responde perguntas de clientes a partir da base curada,
+em um grafo LangGraph: guardas de entrada (mascara PII, bloqueia prompt injection,
+recusa perguntas fora de escopo ou longas demais), cache semantico, resposta com
+citacoes das fontes recuperadas, verificacao das citacoes, juiz com nova tentativa
+explicada e guardas de saida. O resultado fica em um de tres niveis: 1 responde
+ao cliente, 2 vira rascunho para revisao de um atendente, 3 escala para uma pessoa.
+
+```python
+from support_engine.agent import SupportAgent
+
+agent = SupportAgent.from_chunks(curated.chunks, curation=curation)
+result = agent.answer("A exportacao de faturas falha com erro 500")
+print(result.level, result.action, [c.ticket_id for c in result.citations])
+```
+
+Veja [docs/AGENT.md](docs/AGENT.md) para o fluxo, os niveis e todas as opcoes.
+
 ## Linha de Comando (CLI)
 
 ```bash
