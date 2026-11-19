@@ -76,6 +76,26 @@ print(result.stats.pii_masked, len(result.chunks))
 
 Veja [docs/INGESTION.md](docs/INGESTION.md) para todas as opcoes e os padroes de privacidade.
 
+## Curadoria de Respostas
+
+`support_engine.curation` da a cada resposta de ticket um score de resolucao
+(status resolvido, reaberturas, CSAT, um juiz LLM opcional e avaliacoes humanas),
+grava esse score nos metadados dos chunks para que a busca prefira respostas
+comprovadas, transforma correcoes humanas em novas entradas do indice que
+substituem a resposta antiga e sugere um artigo da base de conhecimento quando a
+mesma pergunta sem resposta se repete. Metricas de qualidade resumem cada
+execucao. Pesos e limiares sao configuraveis.
+
+```python
+from support_engine.curation import CurationPipeline, Feedback
+
+feedback = [Feedback.vote("T-101", helpful=False, correction="Reset the token, then sign in again.")]
+result = CurationPipeline().curate(ingested.tickets, ingested.chunks, feedback)
+print(result.metrics.mean_score, len(result.suggestions))
+```
+
+Veja [docs/CURATION.md](docs/CURATION.md) para a formula do score e todas as opcoes.
+
 ## Linha de Comando (CLI)
 
 ```bash
@@ -84,6 +104,9 @@ support-engine import --input tests/fixtures/tickets_sample.csv
 
 # Limpar, mascarar, deduplicar e dividir em chunks; gravar chunks em JSON Lines
 support-engine ingest --input tests/fixtures/tickets_sample.json --chunks-out chunks.jsonl
+
+# Pontuar respostas, aplicar feedback e correcoes, relatar lacunas e metricas de qualidade
+support-engine curate --input tests/fixtures/tickets_sample.json --feedback feedback.jsonl --report-out report.json
 
 # Listar tickets armazenados
 support-engine list --status open

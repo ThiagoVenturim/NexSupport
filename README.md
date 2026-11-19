@@ -76,6 +76,25 @@ print(result.stats.pii_masked, len(result.chunks))
 
 See [docs/INGESTION.md](docs/INGESTION.md) for every option and the privacy defaults.
 
+## Answer Curation
+
+`support_engine.curation` gives every ticket answer a resolution score (solved
+status, reopens, CSAT, an optional LLM judge and human ratings), writes it into
+the chunk metadata so retrieval can prefer proven answers, turns human
+corrections into new index entries that replace the old answer, and suggests a
+knowledge base article when the same unanswered question keeps coming back.
+Quality metrics summarise each run. Weights and thresholds are configurable.
+
+```python
+from support_engine.curation import CurationPipeline, Feedback
+
+feedback = [Feedback.vote("T-101", helpful=False, correction="Reset the token, then sign in again.")]
+result = CurationPipeline().curate(ingested.tickets, ingested.chunks, feedback)
+print(result.metrics.mean_score, len(result.suggestions))
+```
+
+See [docs/CURATION.md](docs/CURATION.md) for the score formula and every option.
+
 ## Command-Line Interface
 
 ```bash
@@ -84,6 +103,9 @@ support-engine import --input tests/fixtures/tickets_sample.csv
 
 # Clean, mask, deduplicate and chunk tickets; write chunks as JSON Lines
 support-engine ingest --input tests/fixtures/tickets_sample.json --chunks-out chunks.jsonl
+
+# Score answers, apply feedback and corrections, report gaps and quality metrics
+support-engine curate --input tests/fixtures/tickets_sample.json --feedback feedback.jsonl --report-out report.json
 
 # List stored tickets
 support-engine list --status open
