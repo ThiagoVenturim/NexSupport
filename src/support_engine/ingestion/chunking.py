@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from support_engine.models import Ticket
 
-ChunkKind = Literal["interaction", "summary"]
+ChunkKind = Literal["interaction", "summary", "correction"]
 Summarizer = Callable[[Ticket], str]
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")

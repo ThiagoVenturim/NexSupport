@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from support_engine.connectors.files import load_tickets_file
+from support_engine.curation import CurationConfig, CurationPipeline, Feedback, FeedbackConfig, FeedbackStore, GapConfig
 from support_engine.ingestion import ChunkingConfig, DedupConfig, IngestionConfig, IngestionPipeline
 from support_engine.models import TicketStatus
 from support_engine.storage import TicketStore
@@ -67,6 +68,29 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser.add_argument("--no-dedup", action="store_true", help="Keep near-duplicate chunks")
     ingest_parser.add_argument("--no-summary", action="store_true", help="Do not build case summary chunks")
     ingest_parser.add_argument("--no-store", action="store_true", help="Do not write tickets to the database")
+
+    # curate subcommand
+    curate_parser = subparsers.add_parser(
+        "curate",
+        help="Ingest tickets, score answers, apply feedback and corrections, report gaps and quality metrics",
+    )
+    curate_parser.add_argument("--input", "-i", required=True, help="Path to the input file (CSV, JSON, or JSONL)")
+    curate_parser.add_argument("--feedback", default=None, help="Feedback as JSON Lines or a JSON list")
+    curate_parser.add_argument(
+        "--save-feedback", action="store_true", help="Store the feedback file in the database (text is masked)"
+    )
+    curate_parser.add_argument(
+        "--with-stored-feedback", action="store_true", help="Also use feedback already stored in the database"
+    )
+    curate_parser.add_argument("--chunks-out", default=None, help="Write curated chunks as JSON Lines to this path")
+    curate_parser.add_argument("--report-out", default=None, help="Write metrics and article suggestions as JSON")
+    curate_parser.add_argument("--min-score", type=float, default=None, help="Drop chunks scored below this (0..1)")
+    curate_parser.add_argument(
+        "--superseded", choices=["drop", "demote", "keep"], default="demote", help="Answers replaced by a correction"
+    )
+    curate_parser.add_argument(
+        "--gap-min-occurrences", type=int, default=3, help="Repeats of a gap before an article is suggested"
+    )
 
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
@@ -153,6 +177,78 @@ def cmd_ingest(args: argparse.Namespace, store: TicketStore | None) -> int:
     return 0
 
 
+def _load_feedback(path: Path) -> list[Feedback]:
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        records = json.loads(raw)
+    else:
+        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    return [Feedback.model_validate(r) for r in records]
+
+
+def cmd_curate(args: argparse.Namespace, feedback_store: FeedbackStore | None) -> int:
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return 1
+    try:
+        config = CurationConfig(
+            min_score=args.min_score,
+            feedback=FeedbackConfig(superseded_policy=args.superseded),
+            gaps=GapConfig(min_occurrences=args.gap_min_occurrences),
+        )
+        feedback: list[Feedback] = []
+        if args.feedback:
+            fb_path = Path(args.feedback)
+            if not fb_path.is_file():
+                sys.stderr.write(f"Error: feedback file '{args.feedback}' not found.\n")
+                return 1
+            feedback = _load_feedback(fb_path)
+    except ValueError as exc:
+        # Report only the error type; the message could echo feedback text.
+        sys.stderr.write(f"Error: invalid curation settings or feedback ({type(exc).__name__}).\n")
+        return 2
+
+    if feedback_store is not None:
+        if args.save_feedback:
+            feedback_store.add_many(feedback)
+        if args.with_stored_feedback:
+            seen = {f.id for f in feedback}
+            feedback += [f for f in feedback_store.list_feedback() if f.id not in seen]
+
+    ingested = IngestionPipeline().process(load_tickets_file(path))
+    result = CurationPipeline(config).curate(ingested.tickets, ingested.chunks, feedback)
+    if args.chunks_out:
+        out = Path(args.chunks_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w", encoding="utf-8") as fh:
+            for chunk in result.chunks:
+                fh.write(json.dumps(chunk.model_dump(mode="json"), ensure_ascii=False) + "\n")
+    if args.report_out:
+        out = Path(args.report_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        report = {
+            "metrics": result.metrics.model_dump(mode="json"),
+            "stats": result.stats.model_dump(mode="json"),
+            "scores": {k: v.model_dump(mode="json") for k, v in result.scores.items()},
+            "suggestions": [s.model_dump(mode="json") for s in result.suggestions],
+        }
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    m, s = result.metrics, result.stats
+    helpful = f"{m.helpful_rate:.2f}" if m.helpful_rate is not None else "-"
+    sys.stdout.write(
+        f"Curated {s.tickets} ticket(s): mean score {m.mean_score:.2f}, {m.share_high:.0%} high, "
+        f"{m.share_low:.0%} low. {s.chunks_out} chunk(s) out, {s.chunks_below_min} below min score, "
+        f"{s.chunks_superseded} superseded, {s.corrections_added} correction(s) added. "
+        f"Feedback {m.feedback_count} (helpful rate {helpful}). "
+        f"Gaps {m.gaps} in {m.gap_clusters} cluster(s), {m.suggested_articles} article(s) suggested.\n"
+    )
+    return 0
+
+
 def cmd_list(args: argparse.Namespace, store: TicketStore) -> int:
     status_filter = TicketStatus(args.status) if args.status else None
     tickets = store.list_tickets(status=status_filter, limit=args.limit, offset=args.offset)
@@ -219,6 +315,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "ingest" and args.no_store:
         return cmd_ingest(args, None)
+
+    if args.command == "curate":
+        if not (args.save_feedback or args.with_stored_feedback):
+            return cmd_curate(args, None)
+        with FeedbackStore(target=args.db_url) as feedback_store:
+            return cmd_curate(args, feedback_store)
 
     with TicketStore(target=args.db_url) as store:
         if args.command == "ingest":
