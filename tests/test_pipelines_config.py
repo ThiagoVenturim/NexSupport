@@ -172,3 +172,16 @@ def test_pipeline_config_object_is_accepted():
     config = PipelineConfig(extends="minimal", engine="local")
     flow = Pipeline.from_config(config)
     assert flow.name == "minimal" and flow.engine == "local"
+
+
+def test_example_flow_file_is_valid():
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "examples" / "pipelines" / "support-tier1.yaml"
+    flow = Pipeline.from_config(path)
+    assert flow.name == "support-tier1"
+    assert "analytics" not in [s.id for s in flow.config.enabled_steps()]
+    assert flow.params["curation"].feedback.superseded_policy == "drop"
+    assert flow.params["answer"].agent.levels.level1_min_score == 0.85
+    result = flow.run(tickets(), questions=["The invoice export fails with error 500"])
+    assert result.status == "completed" and result.answers[0].action == "answer"
