@@ -95,6 +95,25 @@ print(result.metrics.mean_score, len(result.suggestions))
 
 See [docs/CURATION.md](docs/CURATION.md) for the score formula and every option.
 
+## Support Agent
+
+`support_engine.agent` answers customer questions from the curated knowledge
+base with a LangGraph flow: input guards (PII masking, prompt injection, out of
+scope and size limits), a semantic cache, answers that cite the retrieved
+documents, a citation check, a judge with explanatory retries and output guards.
+Each result lands on one of three levels: 1 answers the customer, 2 is a draft
+for a support agent to review, 3 escalates to a person.
+
+```python
+from support_engine.agent import SupportAgent
+
+agent = SupportAgent.from_chunks(curated.chunks, curation=curation)
+result = agent.answer("The invoice export fails with error 500")
+print(result.level, result.action, [c.ticket_id for c in result.citations])
+```
+
+See [docs/AGENT.md](docs/AGENT.md) for the flow, the levels and every option.
+
 ## Command-Line Interface
 
 ```bash
