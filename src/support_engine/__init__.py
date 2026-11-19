@@ -9,6 +9,7 @@ operational analytics:
 - ``support_engine.storage``: pluggable SQLAlchemy storage with DB_URL support (SQLite default).
 - ``support_engine.pii``: deterministic PII masking and anonymization (regex rules, names, NER hook).
 - ``support_engine.ingestion``: cleanup, PII masking, chunking and near-duplicate removal.
+- ``support_engine.curation``: resolution score, human feedback loop, knowledge gaps and quality metrics.
 - ingestion and RAG (connectors, PII masking, chunking, hybrid retrieval, copilot);
 - analytics (sentiment, trends, risk radar, quality, root cause, deflection).
 
@@ -27,6 +28,16 @@ from support_engine.connectors import (
     load_tickets_csv,
     load_tickets_file,
     load_tickets_json,
+)
+from support_engine.curation import (
+    CurationConfig,
+    CurationPipeline,
+    CurationResult,
+    Feedback,
+    FeedbackStore,
+    ResolutionScore,
+    curate,
+    score_ticket,
 )
 from support_engine.ingestion import (
     Chunk,
@@ -64,7 +75,12 @@ __all__ = [
     "ChunkingConfig",
     "CleanupConfig",
     "Comment",
+    "CurationConfig",
+    "CurationPipeline",
+    "CurationResult",
     "DedupConfig",
+    "Feedback",
+    "FeedbackStore",
     "FreshdeskConnector",
     "IngestionConfig",
     "IngestionPipeline",
@@ -73,6 +89,7 @@ __all__ = [
     "JSONConnector",
     "JiraSMConnector",
     "PrivacyConfig",
+    "ResolutionScore",
     "Store",
     "Ticket",
     "TicketConnector",
@@ -81,6 +98,7 @@ __all__ = [
     "ZendeskConnector",
     "build_engine",
     "build_ner_detector",
+    "curate",
     "detect_names",
     "get_connector",
     "ingest_tickets",
@@ -91,6 +109,7 @@ __all__ = [
     "mask_pii",
     "mask_ticket",
     "resolve_db_url",
+    "score_ticket",
 ]
 
 __version__ = "0.1.0"
