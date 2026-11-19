@@ -7,7 +7,8 @@ operational analytics:
 - ``support_engine.connectors``: Zendesk, Freshdesk, Jira Service Management,
   Intercom, CSV and JSON connectors.
 - ``support_engine.storage``: pluggable SQLAlchemy storage with DB_URL support (SQLite default).
-- ``support_engine.pii``: deterministic PII masking and anonymization.
+- ``support_engine.pii``: deterministic PII masking and anonymization (regex rules, names, NER hook).
+- ``support_engine.ingestion``: cleanup, PII masking, chunking and near-duplicate removal.
 - ingestion and RAG (connectors, PII masking, chunking, hybrid retrieval, copilot);
 - analytics (sentiment, trends, risk radar, quality, root cause, deflection).
 
@@ -27,10 +28,23 @@ from support_engine.connectors import (
     load_tickets_file,
     load_tickets_json,
 )
+from support_engine.ingestion import (
+    Chunk,
+    ChunkingConfig,
+    CleanupConfig,
+    DedupConfig,
+    IngestionConfig,
+    IngestionPipeline,
+    IngestionResult,
+    PrivacyConfig,
+    ingest_tickets,
+)
 from support_engine.models import Comment, Ticket, TicketStatus
 from support_engine.pii import (
     AnonymizationRule,
     Anonymizer,
+    build_ner_detector,
+    detect_names,
     mask_pii,
     mask_ticket,
 )
@@ -46,11 +60,19 @@ __all__ = [
     "AnonymizationRule",
     "Anonymizer",
     "CSVConnector",
+    "Chunk",
+    "ChunkingConfig",
+    "CleanupConfig",
     "Comment",
+    "DedupConfig",
     "FreshdeskConnector",
+    "IngestionConfig",
+    "IngestionPipeline",
+    "IngestionResult",
     "IntercomConnector",
     "JSONConnector",
     "JiraSMConnector",
+    "PrivacyConfig",
     "Store",
     "Ticket",
     "TicketConnector",
@@ -58,7 +80,10 @@ __all__ = [
     "TicketStore",
     "ZendeskConnector",
     "build_engine",
+    "build_ner_detector",
+    "detect_names",
     "get_connector",
+    "ingest_tickets",
     "load_env_db_url",
     "load_tickets_csv",
     "load_tickets_file",

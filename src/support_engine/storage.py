@@ -189,8 +189,11 @@ class TicketStore:
             conn.execute(text("DELETE FROM comments"))
             conn.execute(text("DELETE FROM tickets"))
 
-    def save_ticket(self, ticket: Ticket, *, mask_pii: bool = False) -> None:
-        """Insert or update a ticket and its comments using parameterized SQL."""
+    def save_ticket(self, ticket: Ticket, *, mask_pii: bool = True) -> None:
+        """Insert or update a ticket and its comments using parameterized SQL.
+
+        PII is masked before writing unless ``mask_pii=False`` is passed explicitly.
+        """
         record = mask_ticket(ticket) if mask_pii else ticket
 
         created_str = (
@@ -283,7 +286,7 @@ class TicketStore:
                     },
                 )
 
-    def save_tickets(self, tickets: Iterable[Ticket], *, mask_pii: bool = False) -> int:
+    def save_tickets(self, tickets: Iterable[Ticket], *, mask_pii: bool = True) -> int:
         """Save an iterable of tickets, returning the number of tickets processed."""
         count = 0
         for ticket in tickets:

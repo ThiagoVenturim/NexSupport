@@ -46,23 +46,44 @@ construida sobre SQLAlchemy Core com queries parametrizadas:
 
 - **Padrao:** SQLite (`sqlite:///support_engine.db`) para zero configuracao.
 - **Banco proprio:** configure a variavel `DB_URL` no `.env` ou no ambiente apontando para PostgreSQL (`.[postgres]`), MySQL (`.[mysql]`) ou SQL Server ODBC (`.[mssql]`).
-- **Mascaramento de PII:** redacao automatica de e-mails, CPF, CNPJ, telefones, cartoes de credito e chaves de API.
+- **Mascaramento de PII:** ligado por padrao antes de gravar (`mask_pii=False` para desligar); redige e-mails, CPF, CNPJ, telefones, cartoes de credito e chaves de API.
 
 ```python
 from support_engine import TicketStore, mask_ticket
 
 with TicketStore() as store:
-    store.save_ticket(ticket, mask_pii=True)
+    store.save_ticket(ticket)  # mascarado por padrao
     saved = store.get_ticket("1042")
 ```
 
 Consulte [docs/DATABASE.md](docs/DATABASE.md) para detalhes completos de configuracao.
 
+## Qualidade da Ingestao
+
+`support_engine.ingestion` limpa as conversas (HTML, respostas citadas,
+assinaturas, rodapes, avisos legais), mascara PII incluindo nomes de pessoas,
+remove interacoes repetidas e divide cada ticket em chunks por interacao mais um
+resumo do caso, com remocao de quase duplicados por MinHash em todo o corpus.
+Todas as etapas sao configuraveis e rodam offline.
+
+```python
+from support_engine.ingestion import ChunkingConfig, IngestionConfig, IngestionPipeline
+
+config = IngestionConfig(chunking=ChunkingConfig(max_chars=800, overlap_chars=100))
+result = IngestionPipeline(config).process(tickets)
+print(result.stats.pii_masked, len(result.chunks))
+```
+
+Veja [docs/INGESTION.md](docs/INGESTION.md) para todas as opcoes e os padroes de privacidade.
+
 ## Linha de Comando (CLI)
 
 ```bash
-# Importar tickets para o banco com mascaramento de PII
-support-engine import --input tests/fixtures/tickets_sample.csv --mask-pii
+# Importar tickets para o banco (PII mascarada por padrao; --no-mask-pii para desligar)
+support-engine import --input tests/fixtures/tickets_sample.csv
+
+# Limpar, mascarar, deduplicar e dividir em chunks; gravar chunks em JSON Lines
+support-engine ingest --input tests/fixtures/tickets_sample.json --chunks-out chunks.jsonl
 
 # Listar tickets armazenados
 support-engine list --status open

@@ -46,23 +46,44 @@ SQLAlchemy Core with parameterized queries:
 
 - **Default:** SQLite (`sqlite:///support_engine.db`) for zero configuration.
 - **Custom database:** point `DB_URL` in `.env` or the environment to PostgreSQL (`.[postgres]`), MySQL (`.[mysql]`), or SQL Server ODBC (`.[mssql]`).
-- **PII masking:** automatic redaction of emails, CPF, CNPJ, phone numbers, credit cards, and secret keys.
+- **PII masking:** on by default before writing (`mask_pii=False` to opt out); redacts emails, CPF, CNPJ, phone numbers, credit cards, and secret keys.
 
 ```python
 from support_engine import TicketStore, mask_ticket
 
 with TicketStore() as store:
-    store.save_ticket(ticket, mask_pii=True)
+    store.save_ticket(ticket)  # masked by default
     saved = store.get_ticket("1042")
 ```
 
 See [docs/DATABASE.md](docs/DATABASE.md) for full configuration details.
 
+## Ingestion Quality
+
+`support_engine.ingestion` cleans threads (HTML, quoted replies, signatures,
+footers, disclaimers), masks PII including personal names, drops repeated
+interactions, and chunks each ticket per interaction plus a case summary, with
+MinHash near-duplicate removal across the corpus. All steps are configurable and
+run offline.
+
+```python
+from support_engine.ingestion import ChunkingConfig, IngestionConfig, IngestionPipeline
+
+config = IngestionConfig(chunking=ChunkingConfig(max_chars=800, overlap_chars=100))
+result = IngestionPipeline(config).process(tickets)
+print(result.stats.pii_masked, len(result.chunks))
+```
+
+See [docs/INGESTION.md](docs/INGESTION.md) for every option and the privacy defaults.
+
 ## Command-Line Interface
 
 ```bash
-# Import tickets into the database with PII masking
-support-engine import --input tests/fixtures/tickets_sample.csv --mask-pii
+# Import tickets into the database (PII masked by default; --no-mask-pii to opt out)
+support-engine import --input tests/fixtures/tickets_sample.csv
+
+# Clean, mask, deduplicate and chunk tickets; write chunks as JSON Lines
+support-engine ingest --input tests/fixtures/tickets_sample.json --chunks-out chunks.jsonl
 
 # List stored tickets
 support-engine list --status open

@@ -7,11 +7,13 @@ tickets using the pluggable SQLAlchemy storage layer.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from support_engine.connectors.files import load_tickets_file
+from support_engine.ingestion import ChunkingConfig, DedupConfig, IngestionConfig, IngestionPipeline
 from support_engine.models import TicketStatus
 from support_engine.storage import TicketStore
 
@@ -44,10 +46,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_parser.add_argument(
         "--mask-pii",
-        action="store_true",
-        default=False,
-        help="Mask sensitive PII entities before writing to the database",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Mask sensitive PII entities before writing to the database (default: on; "
+        "--no-mask-pii stores customer data in clear text)",
     )
+
+    # ingest subcommand
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Clean, mask PII, deduplicate and chunk tickets from a file; store tickets and write chunks",
+    )
+    ingest_parser.add_argument("--input", "-i", required=True, help="Path to the input file (CSV, JSON, or JSONL)")
+    ingest_parser.add_argument("--chunks-out", default=None, help="Write chunks as JSON Lines to this path")
+    ingest_parser.add_argument("--max-chars", type=int, default=1200, help="Maximum characters per chunk")
+    ingest_parser.add_argument("--overlap-chars", type=int, default=150, help="Overlap between chunk pieces")
+    ingest_parser.add_argument(
+        "--dedup-threshold", type=float, default=0.85, help="Near-duplicate Jaccard threshold (0..1]"
+    )
+    ingest_parser.add_argument("--no-dedup", action="store_true", help="Keep near-duplicate chunks")
+    ingest_parser.add_argument("--no-summary", action="store_true", help="Do not build case summary chunks")
+    ingest_parser.add_argument("--no-store", action="store_true", help="Do not write tickets to the database")
 
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
@@ -92,8 +111,45 @@ def cmd_import(args: argparse.Namespace, store: TicketStore) -> int:
 
     tickets = load_tickets_file(path)
     count = store.save_tickets(tickets, mask_pii=args.mask_pii)
-    pii_note = " (PII masked)" if args.mask_pii else ""
+    pii_note = " (PII masked)" if args.mask_pii else " (PII NOT masked)"
     sys.stdout.write(f"Imported {count} ticket(s) from '{args.input}'{pii_note}.\n")
+    return 0
+
+
+def cmd_ingest(args: argparse.Namespace, store: TicketStore | None) -> int:
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return 1
+    try:
+        config = IngestionConfig(
+            chunking=ChunkingConfig(
+                max_chars=args.max_chars, overlap_chars=args.overlap_chars, include_summary=not args.no_summary
+            ),
+            dedup=DedupConfig(enabled=not args.no_dedup, threshold=args.dedup_threshold),
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"Error: invalid ingestion settings: {exc}\n")
+        return 2
+
+    result = IngestionPipeline(config).process(load_tickets_file(path))
+    if store is not None:
+        # Tickets are already masked by the pipeline; masking again is a no-op safety net.
+        store.save_tickets(result.tickets, mask_pii=True)
+    if args.chunks_out:
+        out = Path(args.chunks_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w", encoding="utf-8") as fh:
+            for chunk in result.chunks:
+                fh.write(json.dumps(chunk.model_dump(mode="json"), ensure_ascii=False) + "\n")
+
+    s = result.stats
+    masked = ", ".join(f"{k}={v}" for k, v in sorted(s.pii_masked.items())) or "none"
+    sys.stdout.write(
+        f"Ingested {s.tickets} ticket(s): {s.comments_kept} interaction(s) kept, "
+        f"{s.comments_empty + s.comments_duplicate} dropped, {s.chunks} chunk(s), "
+        f"{s.chunks_duplicate} duplicate chunk(s) removed. PII masked: {masked}.\n"
+    )
     return 0
 
 
@@ -161,7 +217,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
+    if args.command == "ingest" and args.no_store:
+        return cmd_ingest(args, None)
+
     with TicketStore(target=args.db_url) as store:
+        if args.command == "ingest":
+            return cmd_ingest(args, store)
         if args.command == "import":
             return cmd_import(args, store)
         if args.command == "list":
