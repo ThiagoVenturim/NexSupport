@@ -169,6 +169,25 @@ python examples/nexlink/nexcoder_reads_metrics.py   # offline: NexCoder -> Suppo
 
 See [docs/NEXLINK.md](docs/NEXLINK.md) for the envelope, the actions, the scopes and the examples.
 
+## Help desk integrations (OAuth and MCP)
+
+`support_engine.integrations` connects Zendesk, Freshdesk, Intercom and Jira Service
+Management over OAuth 2.0 (authorization code with PKCE where supported, refresh
+tokens, minimal read-only scopes). Client secrets and tokens stay in the environment,
+the git-ignored `.env` or a vault adapter, never in logs or output; the `state` is
+single use and compared in constant time. Synced tickets follow each platform's
+pagination and rate limits and are stored in the common ticket model with PII masked.
+The MCP tools `list_tickets`, `suggest_reply` and `support_metrics` serve them to
+other assistants and to NexHub.
+
+```bash
+support-engine oauth-login zendesk      # prints the authorization URL, stores the token in .env
+support-engine sync zendesk             # fetch, mask PII, store
+support-engine integrations-mcp         # MCP over stdio
+```
+
+See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for the settings, the security rules and the tools.
+
 ## Support Metrics on askdash
 
 `support_engine.metrics` feeds the askdash (NexDash) report engine with support
