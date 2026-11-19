@@ -9,8 +9,8 @@
 Bodies above ``max_body_bytes`` are refused before they are parsed.
 """
 
-from __future__ import annotations
-
+# No ``from __future__ import annotations``: FastAPI must see the real ``Request`` type of the
+# endpoint, which is imported inside ``create_nexlink_app``.
 import json
 from typing import Any
 
