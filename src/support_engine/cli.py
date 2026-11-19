@@ -138,6 +138,47 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
     serve_parser.add_argument("--env-file", default=".env", help="File read when SUPPORT_ENGINE_API_TOKEN is unset")
 
+    # support metrics on askdash (NexDash)
+    metrics_parser = subparsers.add_parser(
+        "metrics",
+        help="Load support metrics and analytics into a NexDash database and render the support dashboards",
+    )
+    metrics_parser.add_argument("--input", "-i", required=True, help="Path to the input file (CSV, JSON, or JSONL)")
+    metrics_parser.add_argument(
+        "--agent-results", default=None, help="Agent outcomes with ticket_id, as JSON Lines or a JSON list"
+    )
+    metrics_parser.add_argument("--now", default=None, help="ISO time the analytics are computed for (default: latest)")
+    metrics_parser.add_argument(
+        "--dashboard-out", default=None, help="Directory for one HTML dashboard per report model"
+    )
+    metrics_parser.add_argument(
+        "--model",
+        action="append",
+        choices=["support_metrics", "support_insights"],
+        default=None,
+        help="Report model to render (repeatable; default both)",
+    )
+    metrics_parser.add_argument("--start", default=None, help="First day of the period (YYYY-MM-DD)")
+    metrics_parser.add_argument("--end", default=None, help="Last day of the period (YYYY-MM-DD)")
+    metrics_parser.add_argument("--team", default=None, help="Team or queue")
+    metrics_parser.add_argument("--project", default=None, help="Product or project")
+    metrics_parser.add_argument("--locale", choices=["en", "pt-BR"], default="en", help="Dashboard locale")
+    metrics_server_parser = subparsers.add_parser(
+        "metrics-server",
+        help="Serve the support report models of NexDash over REST and MCP (tokens from the NexDash environment)",
+    )
+    metrics_server_parser.add_argument("--input", "-i", default=None, help="Tickets to load before serving")
+    metrics_server_parser.add_argument("--agent-results", default=None, help="Agent outcomes with ticket_id")
+    metrics_server_parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    metrics_server_parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
+    metrics_server_parser.add_argument("--mcp", action="store_true", help="Serve MCP over stdio instead of HTTP")
+    for sub in (metrics_parser, metrics_server_parser):
+        sub.add_argument(
+            "--nexdash-db",
+            default=None,
+            help="SQLAlchemy URL of the database NexDash reads (default: in memory for metrics, DB_URL for the server)",
+        )
+
     # list subcommand
     list_parser = subparsers.add_parser("list", help="List stored tickets")
     list_parser.add_argument(
@@ -363,6 +404,128 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _metrics_inputs(args: argparse.Namespace):
+    """Tickets and agent outcomes of the metrics commands, or an exit code on error."""
+    from support_engine.metrics import build_support_metrics
+
+    path = Path(args.input)
+    if not path.is_file():
+        sys.stderr.write(f"Error: input file '{args.input}' not found.\n")
+        return 1
+    try:
+        now = datetime.fromisoformat(args.now) if getattr(args, "now", None) else None
+        if now is not None and now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        results = None
+        if args.agent_results:
+            results_path = Path(args.agent_results)
+            if not results_path.is_file():
+                sys.stderr.write(f"Error: agent results file '{args.agent_results}' not found.\n")
+                return 1
+            results = _load_records(results_path)
+        return build_support_metrics(load_tickets_file(path), results, now=now)
+    except ValueError as exc:
+        # Report only the error type; the message could echo file content.
+        sys.stderr.write(f"Error: invalid tickets, agent results or time ({type(exc).__name__}).\n")
+        return 2
+
+
+def _nexdash_missing() -> int:
+    sys.stderr.write("Error: support metrics need the nexdash package (askdash): pip install -e <askdash checkout>\n")
+    return 2
+
+
+def cmd_metrics(args: argparse.Namespace) -> int:
+    try:
+        from nexdash.executor import get_executor
+        from nexdash.service import ServiceError
+
+        from support_engine.metrics.askdash import build_engine, load_into_nexdash
+    except ImportError:
+        return _nexdash_missing()
+    from support_engine.metrics import report_request
+
+    models = args.model or ["support_metrics", "support_insights"]
+    try:
+        requests = [
+            report_request(
+                name,
+                start=args.start,
+                end=args.end,
+                team=args.team,
+                project=args.project,
+                output="dashboard",
+                locale=args.locale,
+            )
+            for name in models
+        ]
+    except ValueError as exc:
+        sys.stderr.write(f"Error: {exc}.\n")
+        return 2
+    metrics = _metrics_inputs(args)
+    if isinstance(metrics, int):
+        return metrics
+
+    executor = get_executor(args.nexdash_db or "sqlite:///:memory:")
+    try:
+        counts = load_into_nexdash(executor, metrics)
+        written = []
+        if args.dashboard_out:
+            out = Path(args.dashboard_out)
+            out.mkdir(parents=True, exist_ok=True)
+            engine = build_engine(executor)
+            for request in requests:
+                try:
+                    html = engine.render(request)
+                except ServiceError as exc:
+                    sys.stderr.write(f"Error: {exc}\n")
+                    return 2
+                target = out / f"{request['model']}.html"
+                target.write_text(html, encoding="utf-8")
+                written.append(target.name)
+    finally:
+        executor.close()
+
+    report = metrics.report
+    line = (
+        f"Loaded {counts['support_metrics']} ticket(s) into support_metrics and "
+        f"{counts['support_insights']} into support_insights: {len(report.high_risk())} high risk, "
+        f"{len(report.alerts)} trend alert(s), {len(metrics.outcomes)} agent outcome(s) tied to tickets."
+    )
+    if written:
+        line += f" Dashboards: {', '.join(written)}."
+    sys.stdout.write(line + "\n")
+    return 0
+
+
+def cmd_metrics_server(args: argparse.Namespace) -> int:
+    import logging
+
+    try:
+        from support_engine.metrics.askdash import create_server, serve_mcp_stdio
+    except ImportError:
+        return _nexdash_missing()
+    metrics = None
+    if args.input:
+        metrics = _metrics_inputs(args)
+        if isinstance(metrics, int):
+            return metrics
+    if args.mcp:
+        # stdout carries protocol messages only.
+        logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+        serve_mcp_stdio(args.nexdash_db, metrics=metrics)
+        return 0
+    server = create_server(args.host, args.port, args.nexdash_db, metrics=metrics)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        server.executor.close()
+    return 0
+
+
 def _build_copilot(args: argparse.Namespace, feedback_store: FeedbackStore | None):
     from support_engine.copilot import Copilot
 
@@ -491,6 +654,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "analyze":
         return cmd_analyze(args)
+
+    if args.command == "metrics":
+        return cmd_metrics(args)
+
+    if args.command == "metrics-server":
+        return cmd_metrics_server(args)
 
     if args.command in ("serve", "mcp"):
         handler = cmd_serve if args.command == "serve" else cmd_mcp
