@@ -114,6 +114,25 @@ print(result.level, result.action, [c.ticket_id for c in result.citations])
 
 See [docs/AGENT.md](docs/AGENT.md) for the flow, the levels and every option.
 
+## Support Analytics
+
+`support_engine.analytics` turns masked tickets and agent outcomes into one
+report: multilingual sentiment (English, Portuguese, Spanish, replacing TextBlob,
+with an optional LLM backend), live trends that alert when a topic grows past its
+baseline, a risk radar for churn, escalation and SLA breaches, service quality per
+product, root cause candidates for negative and trending tickets, and deflection
+with ROI for the support agent. Every threshold, weight and cost is configurable.
+
+```python
+from support_engine.analytics import AnalyticsPipeline
+
+report = AnalyticsPipeline().run(ingested.tickets, agent_results)
+print(report.sentiment.negative_share, [a.keywords for a in report.alerts])
+print([r.ticket_id for r in report.high_risk()], report.roi.deflection_rate)
+```
+
+See [docs/ANALYTICS.md](docs/ANALYTICS.md) for the formulas and every option.
+
 ## Command-Line Interface
 
 ```bash
@@ -125,6 +144,9 @@ support-engine ingest --input tests/fixtures/tickets_sample.json --chunks-out ch
 
 # Score answers, apply feedback and corrections, report gaps and quality metrics
 support-engine curate --input tests/fixtures/tickets_sample.json --feedback feedback.jsonl --report-out report.json
+
+# Sentiment, trends, risk radar, quality, root cause and ROI as one JSON report
+support-engine analyze --input tests/fixtures/tickets_sample.json --agent-results results.jsonl --report-out analytics.json
 
 # List stored tickets
 support-engine list --status open
