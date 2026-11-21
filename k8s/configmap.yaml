@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: support-engine-config
+  labels:
+    app.kubernetes.io/name: support-engine
+data:
+  LOG_LEVEL: "INFO"

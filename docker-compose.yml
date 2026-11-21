@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DB_URL: ${DB_URL:-sqlite:////data/support_engine.db}
+    volumes:
+      - support_data:/data
+    command: ["--help"]
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-support}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-support_engine}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-support} -d $${POSTGRES_DB:-support_engine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  support_data:
+  postgres_data:

@@ -1,0 +1,36 @@
+{
+  "tickets": [
+    {
+      "id": "JSON-201",
+      "subject": "SSO login redirect loop",
+      "description": "<p>Users are redirected back to the login screen after SAML assertion.</p>",
+      "status": "solved",
+      "priority": "high",
+      "product": "identity",
+      "tags": ["sso", "saml"],
+      "language": "en",
+      "created_at": "2026-02-12T08:00:00Z",
+      "updated_at": "2026-02-12T10:00:00Z",
+      "solved_at": "2026-02-12T10:00:00Z",
+      "reopen_count": 0,
+      "csat": 5,
+      "comments": [
+        {
+          "id": "jc-1",
+          "author_role": "customer",
+          "body": "IdP clock skew was 4 minutes.",
+          "created_at": "2026-02-12T08:30:00Z",
+          "public": true
+        },
+        {
+          "id": "jc-2",
+          "author_role": "agent",
+          "body": "Enabled 5-minute clock drift tolerance on SAML verifier.",
+          "created_at": "2026-02-12T09:45:00Z",
+          "public": true
+        }
+      ],
+      "environment": "production"
+    }
+  ]
+}
